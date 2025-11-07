@@ -1,4 +1,12 @@
 import sqlite3
+import os
+
+base_dir = os.path.dirname(__file__)
+db_path = os.path.join(base_dir,"GestiondeGastos.db")
+db_path = os.path.abspath(db_path)
+
+conn= sqlite3.connect(db_path)
+cursor= conn.cursor()
 
 def create_database(db_name):
         """Inicializar base de datos"""
@@ -37,9 +45,12 @@ def create_database(db_name):
         conn.close()
         print("✓ Base de datos 'GestiondeGastos.db' inicializada exitosamente")   
 
+
+#Insertamos datos
+
 def insertar_usuarios (nombre, email, password):
     """Inserta un usuario en la base de datos"""
-    conn = sqlite3.connect('GestiondeGastos.db')
+    conn = sqlite3.connect(db_path)
     cursor = conn.cursor()
     
     cursor.execute('''
@@ -55,7 +66,7 @@ def insertar_usuarios (nombre, email, password):
 
 def insertar_movimiento(descripcion, monto, usuario_id, categoria_id):
     """Inserta un movimiento en la base de datos"""
-    conn = sqlite3.connect('GestiondeGastos.db')
+    conn = sqlite3.connect(db_path)
     cursor = conn.cursor()
     
     cursor.execute('''
@@ -68,7 +79,7 @@ def insertar_movimiento(descripcion, monto, usuario_id, categoria_id):
 
 def insertar_categoria(nombre, tipo):
     """Inserta una categoría en la base de datos"""
-    conn = sqlite3.connect('GestiondeGastos.db')
+    conn = sqlite3.connect(db_path)
     cursor = conn.cursor()
     
     cursor.execute('''
@@ -83,7 +94,7 @@ def insertar_categoria(nombre, tipo):
 
 def insertar_categorias_iniciales():
     """Inserta categorías iniciales en la base de datos si no existen"""
-    conn = sqlite3.connect('GestiondeGastos.db')
+    conn = sqlite3.connect(db_path)
     cursor = conn.cursor()
 
     cursor.execute("SELECT COUNT(*) FROM categorias")

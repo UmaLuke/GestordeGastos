@@ -1,7 +1,9 @@
 from fastapi import FastAPI
-from fastapi.responses import JSONResponse
-from pydantic import BaseModel
-from typing import Literal
-import sqlite3
+from database import fetch_query
 
 app = FastAPI()
+
+@app.get("/usuarios")
+def usuarios():
+    rows = fetch_query("SELECT id, nombre, email FROM usuarios")
+    return [dict(r) for r in rows]
