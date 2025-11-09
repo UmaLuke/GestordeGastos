@@ -1,6 +1,6 @@
 import sqlite3
 
-def init_db():
+def init_bd():
     conn = sqlite3.connect("database.db")  # usa el mismo nombre que en tu proyecto
     cursor = conn.cursor()
 
@@ -21,4 +21,4 @@ def init_db():
     print("✅ Base de datos inicializada correctamente.")
 
 if __name__ == "__main__":
-    init_db()
+    init_bd()
