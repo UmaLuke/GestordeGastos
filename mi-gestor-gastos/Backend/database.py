@@ -1,41 +1,35 @@
+# Backend/database.py
+from typing import List, Dict, Any, Optional
 import sqlite3
-import os
+from create_db import DB_PATH
 
-# Ruta absoluta a la base de datos
-BASE_DIR = os.path.dirname(os.path.dirname(__file__))  # Sube un nivel desde Backend/
-DB_PATH = os.path.join(BASE_DIR, "BD", "GestiondeGastos.db")
+def get_conn():
+    conn = sqlite3.connect(DB_PATH)
+    conn.row_factory = sqlite3.Row
+    conn.execute("PRAGMA foreign_keys = ON")
+    return conn
 
-def get_connection():
-    """Devuelve la conexión a la base de datos."""
-    if not os.path.exists(DB_PATH):
-        raise FileNotFoundError(f"No se encontró la base de datos en: {DB_PATH}")
-    connection = sqlite3.connect(DB_PATH)
-    connection.row_factory = sqlite3.Row
-    return connection
+def fetch_all(query: str, params: tuple = ()) -> List[Dict[str, Any]]:
+    conn = get_conn()
+    cur = conn.cursor()
+    cur.execute(query, params)
+    rows = [dict(r) for r in cur.fetchall()]
+    conn.close()
+    return rows
 
-def execute_query(query, params=None):
-    """Ejecuta INSERT, UPDATE o DELETE."""
-    conn = get_connection()
-    cursor = conn.cursor()
-    try:
-        if params:
-            cursor.execute(query, params)
-        else:
-            cursor.execute(query)
-        conn.commit()
-        return cursor.lastrowid
-    finally:
-        conn.close()
+def fetch_one(query: str, params: tuple = ()) -> Optional[Dict[str, Any]]:
+    conn = get_conn()
+    cur = conn.cursor()
+    cur.execute(query, params)
+    row = cur.fetchone()
+    conn.close()
+    return dict(row) if row else None
 
-def fetch_query(query, params=None):
-    """Ejecuta SELECT y devuelve los resultados."""
-    conn = get_connection()
-    cursor = conn.cursor()
-    try:
-        if params:
-            cursor.execute(query, params)
-        else:
-            cursor.execute(query)
-        return cursor.fetchall()
-    finally:
-        conn.close()
+def execute(query: str, params: tuple = ()) -> int:
+    conn = get_conn()
+    cur = conn.cursor()
+    cur.execute(query, params)
+    last_id = cur.lastrowid
+    conn.commit()
+    conn.close()
+    return last_id

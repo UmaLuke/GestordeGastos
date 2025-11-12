@@ -1,111 +1,136 @@
-from fastapi import FastAPI
-from fastapi.responses import JSONResponse
+# Backend/main.py
+from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
-from typing import Literal
-import sqlite3
-from BD.create_bd import insertar_usuarios, insertar_movimiento, insertar_categoria, insertar_categorias_iniciales
+from typing import Optional, List
+from database import fetch_all, fetch_one, execute
+from create_db import create_database, insertar_categorias_iniciales
 
-app = FastAPI(
-    title="Gestor de Gastos API",
-    description="API para gestionar gastos personales",
-    version="1.0.0"
-)
+# Inicializa esquema por si falta algo
+create_database()
+insertar_categorias_iniciales()
 
-db_path = "BD/GestiondeGastos.db"
+app = FastAPI(title="Gestor de Gastos API")
 
-
+# Ajustá el puerto del front (Vite suele ser 5173)
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # o limitar a tu frontend
+    allow_origins=["http://localhost:5173", "http://127.0.0.1:5173"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
-
-class Movimiento(BaseModel):
-    descripcion: str
-    monto: float
-    usuario_id: int
-    categoria_id: int
-
-class Usuario(BaseModel):
+# ====== Modelos ======
+class UsuarioIn(BaseModel):
     nombre: str
     email: str
     password: str
 
-class Categoria(BaseModel):
+class UsuarioOut(UsuarioIn):
+    id: int
+
+class CategoriaIn(BaseModel):
     nombre: str
-    tipo: Literal['ingreso', 'gasto']
+    tipo: str  # 'ingreso' | 'gasto'
 
-@app.on_event("startup")
-def startup_event():
-    insertar_categorias_iniciales()
+class CategoriaOut(CategoriaIn):
+    id: int
 
-@app.get("/")
-def read_root():
-    return JSONResponse(content={"message": "Bienvenido a la API de Gestor de Gastos"})
+class MovimientoIn(BaseModel):
+    descripcion: str
+    monto: float
+    usuario_id: int
+    categoria_id: Optional[int] = None  # puede ser null
 
-@app.post("/usuarios/")
-def agregar_usuario(usuario: Usuario):
-    usuario_id = insertar_usuarios(usuario.nombre, usuario.email, usuario.password)
-    return {"usuario_id": usuario_id}
+class MovimientoOut(MovimientoIn):
+    id: int
+    fecha: str
 
-@app.get("/usuarios/")
-def listar_usuarios():
-    with sqlite3.connect(db_path) as conn:
-        cursor = conn.cursor()
-        cursor.execute("SELECT id, nombre, email FROM usuarios")
-        usuarios = [{"id": row[0], "nombre": row[1], "email": row[2]} for row in cursor.fetchall()]
-    return {"usuarios": usuarios}
+# ====== Usuarios ======
+@app.get("/usuarios", response_model=List[UsuarioOut])
+def list_usuarios():
+    return fetch_all("SELECT id, nombre, email, password FROM usuarios")
 
-@app.post("/movimientos/")
-def agregar_movimiento(movimiento: Movimiento):
-    insertar_movimiento(movimiento.descripcion, movimiento.monto, movimiento.usuario_id, movimiento.categoria_id)
-    return {"mensaje": "Movimiento agregado exitosamente"}
+@app.get("/usuarios/{uid}", response_model=UsuarioOut)
+def get_usuario(uid: int):
+    row = fetch_one("SELECT id, nombre, email, password FROM usuarios WHERE id=?", (uid,))
+    if not row: raise HTTPException(404, "Usuario no encontrado")
+    return row
 
-@app.post("/categorias/")
-def agregar_categoria(categoria: Categoria):
-    categoria_id = insertar_categoria(categoria.nombre, categoria.tipo)
-    return {"categoria_id": categoria_id}
+@app.post("/usuarios", response_model=UsuarioOut, status_code=201)
+def create_usuario(data: UsuarioIn):
+    uid = execute(
+        "INSERT INTO usuarios(nombre,email,password) VALUES(?,?,?)",
+        (data.nombre, data.email, data.password)
+    )
+    return {"id": uid, **data.dict()}
 
-@app.get("/usuarios/{usuario_id}/movimientos/")
-def obtener_movimientos_usuario(usuario_id: int):
-    with sqlite3.connect(db_path) as conn:
-        cursor = conn.cursor()
-        cursor.execute("""
-            SELECT id, descripcion, monto, categoria_id 
-            FROM movimientos 
-            WHERE usuario_id = ?
-        """, (usuario_id,))
-        movimientos = [
-            {"id": row[0], "descripcion": row[1], "monto": row[2], "categoria_id": row[3]}
-            for row in cursor.fetchall()
-        ]
-    return {"movimientos": movimientos}
+@app.put("/usuarios/{uid}", response_model=UsuarioOut)
+def update_usuario(uid: int, data: UsuarioIn):
+    row = fetch_one("SELECT id FROM usuarios WHERE id=?", (uid,))
+    if not row: raise HTTPException(404, "Usuario no encontrado")
+    execute("UPDATE usuarios SET nombre=?, email=?, password=? WHERE id=?",
+            (data.nombre, data.email, data.password, uid))
+    return {"id": uid, **data.dict()}
 
-@app.post("/categorias/")
-def agregar_categoria(categoria: Categoria):
-    categoria_id = insertar_categoria(categoria.nombre, categoria.tipo)
-    return {"categoria_id": categoria_id}
+@app.delete("/usuarios/{uid}", status_code=204)
+def delete_usuario(uid: int):
+    execute("DELETE FROM usuarios WHERE id=?", (uid,))
+    return
 
-@app.get("/categorias/")
-def listar_categorias():
-    conn = sqlite3.connect(db_path)
-    cursor = conn.cursor()
-    cursor.execute("SELECT id, nombre, tipo FROM categorias")
-    categorias = [{"id": row[0], "nombre": row[1], "tipo": row[2]} for row in cursor.fetchall()]
-    conn.close()
-    return {"categorias": categorias}
+# ====== Categorias ======
+@app.get("/categorias", response_model=List[CategoriaOut])
+def list_categorias():
+    return fetch_all("SELECT id, nombre, tipo FROM categorias ORDER BY tipo, nombre")
 
-@app.get("/test-bd")
-def test_bd():
-    try:
-        with sqlite3.connect(db_path) as conn:
-            cursor = conn.cursor()
-            cursor.execute("SELECT name FROM sqlite_master WHERE type='table';")
-            tablas = [t[0] for t in cursor.fetchall()]
-        return {"status": "ok", "tablas": tablas}
-    except Exception as e:
-        return {"status": "error", "detalle": str(e)}
+@app.post("/categorias", response_model=CategoriaOut, status_code=201)
+def create_categoria(data: CategoriaIn):
+    cid = execute("INSERT INTO categorias(nombre,tipo) VALUES(?,?)", (data.nombre, data.tipo))
+    return {"id": cid, **data.dict()}
+
+@app.put("/categorias/{cid}", response_model=CategoriaOut)
+def update_categoria(cid: int, data: CategoriaIn):
+    row = fetch_one("SELECT id FROM categorias WHERE id=?", (cid,))
+    if not row: raise HTTPException(404, "Categoría no encontrada")
+    execute("UPDATE categorias SET nombre=?, tipo=? WHERE id=?", (data.nombre, data.tipo, cid))
+    return {"id": cid, **data.dict()}
+
+@app.delete("/categorias/{cid}", status_code=204)
+def delete_categoria(cid: int):
+    execute("DELETE FROM categorias WHERE id=?", (cid,))
+    return
+
+# ====== Movimientos ======
+@app.get("/movimientos", response_model=List[MovimientoOut])
+def list_movimientos():
+    return fetch_all("""
+      SELECT id, descripcion, monto, fecha, usuario_id, categoria_id
+      FROM movimientos
+      ORDER BY datetime(fecha) DESC, id DESC
+    """)
+
+@app.post("/movimientos", response_model=MovimientoOut, status_code=201)
+def create_movimiento(data: MovimientoIn):
+    mid = execute(
+        "INSERT INTO movimientos(descripcion, monto, usuario_id, categoria_id) VALUES(?,?,?,?)",
+        (data.descripcion, data.monto, data.usuario_id, data.categoria_id)
+    )
+    row = fetch_one("SELECT * FROM movimientos WHERE id=?", (mid,))
+    return row  # incluye fecha por default
+
+@app.put("/movimientos/{mid}", response_model=MovimientoOut)
+def update_movimiento(mid: int, data: MovimientoIn):
+    row = fetch_one("SELECT id FROM movimientos WHERE id=?", (mid,))
+    if not row: raise HTTPException(404, "Movimiento no encontrado")
+    execute(
+        "UPDATE movimientos SET descripcion=?, monto=?, usuario_id=?, categoria_id=? WHERE id=?",
+        (data.descripcion, data.monto, data.usuario_id, data.categoria_id, mid)
+    )
+    row = fetch_one("SELECT * FROM movimientos WHERE id=?", (mid,))
+    return row
+
+@app.delete("/movimientos/{mid}", status_code=204)
+def delete_movimiento(mid: int):
+    execute("DELETE FROM movimientos WHERE id=?", (mid,))
+    return

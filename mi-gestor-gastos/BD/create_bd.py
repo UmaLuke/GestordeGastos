@@ -1,111 +1,116 @@
+# create_db.py
 import sqlite3
 import os
 
+# === Configuración de ruta absoluta a la DB (en la misma carpeta que este archivo) ===
+BASE_DIR = os.path.dirname(__file__)
+DB_NAME = "GestiondeGastos.db"
+DB_PATH = os.path.abspath(os.path.join(BASE_DIR, DB_NAME))
 
-base_dir = os.path.dirname(__file__)
-db_path = os.path.join(base_dir,"GestiondeGastos.db")
-db_path = os.path.abspath(db_path)
+def get_conn():
+    """Devuelve conexión con foreign_keys activado."""
+    conn = sqlite3.connect(DB_PATH)
+    conn.execute("PRAGMA foreign_keys = ON")
+    return conn
 
-conn= sqlite3.connect(db_path)
-cursor= conn.cursor()
+def create_database():
+    """Crea/actualiza el esquema de la base de datos."""
+    conn = get_conn()
+    cur = conn.cursor()
 
-def create_database(db_name):
-        """Inicializar base de datos"""
-        conn = sqlite3.connect('GestiondeGastos.db')
-        cursor = conn.cursor()
+    # Tabla usuarios
+    cur.execute("""
+    CREATE TABLE IF NOT EXISTS usuarios (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        nombre TEXT NOT NULL UNIQUE,
+        email TEXT NOT NULL UNIQUE,
+        password TEXT NOT NULL
+    )
+    """)
 
-        cursor.execute('''
-        CREATE TABLE IF NOT EXISTS usuarios 
-                       (id INTEGER PRIMARY KEY AUTOINCREMENT,
-                       nombre TEXT NOT NULL UNIQUE,
-                       email TEXT NOT NULL UNIQUE,
-                       password TEXT NOT NULL 
-                       )''')
-        
-        cursor.execute('''
-        CREATE TABLE IF NOT EXISTS movimientos 
-                       (id INTEGER PRIMARY KEY AUTOINCREMENT,
-                       descripcion TEXT NOT NULL,
-                       monto REAL NOT NULL,
-                       fecha TEXT DEFAULT (datetime('now', 'localtime')),
-                       usuario_id INTEGER NOT NULL,
-                       categoria_id INTEGER NOT NULL,
-                       FOREIGN KEY (usuario_id) REFERENCES usuarios(id) ON DELETE CASCADE,
-                       FOREIGN KEY (categoria_id) REFERENCES categorias(id) ON DELETE SET NULL
-                       )''')
-        
-        cursor.execute('''
-        CREATE TABLE IF NOT EXISTS categorias 
-                       (id INTEGER PRIMARY KEY AUTOINCREMENT,
-                        nombre TEXT NOT NULL UNIQUE,
-                        tipo TEXT NOT NULL CHECK(tipo IN ('ingreso', 'gasto'))
-                       )''')
-                                 
+    # Tabla categorias
+    cur.execute("""
+    CREATE TABLE IF NOT EXISTS categorias (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        nombre TEXT NOT NULL UNIQUE,
+        tipo TEXT NOT NULL CHECK (tipo IN ('ingreso', 'gasto'))
+    )
+    """)
 
-        conn.commit()
-        conn.close()
-        print("✓ Base de datos 'GestiondeGastos.db' inicializada exitosamente")   
+    # Tabla movimientos
+    # NOTA: categoria_id SIN NOT NULL para que ON DELETE SET NULL sea válido
+    cur.execute("""
+    CREATE TABLE IF NOT EXISTS movimientos (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        descripcion TEXT NOT NULL,
+        monto REAL NOT NULL CHECK (monto >= 0),
+        fecha TEXT DEFAULT (datetime('now', 'localtime')),
+        usuario_id INTEGER NOT NULL,
+        categoria_id INTEGER,
+        FOREIGN KEY (usuario_id) REFERENCES usuarios(id) ON DELETE CASCADE,
+        FOREIGN KEY (categoria_id) REFERENCES categorias(id) ON DELETE SET NULL
+    )
+    """)
 
+    # Índices recomendados
+    cur.execute("CREATE INDEX IF NOT EXISTS idx_movimientos_usuario ON movimientos(usuario_id)")
+    cur.execute("CREATE INDEX IF NOT EXISTS idx_movimientos_categoria ON movimientos(categoria_id)")
+    cur.execute("CREATE INDEX IF NOT EXISTS idx_categorias_tipo ON categorias(tipo)")
 
-#Insertamos datos
+    conn.commit()
+    conn.close()
+    print(f"✓ Esquema listo en {DB_PATH}")
 
-def insertar_usuarios (nombre, email, password):
-    """Inserta un usuario en la base de datos"""
-    conn = sqlite3.connect(db_path)
-    cursor = conn.cursor()
-    
-    cursor.execute('''
+def insertar_usuarios(nombre, email, password):
+    """Inserta un usuario y retorna su id."""
+    conn = get_conn()
+    cur = conn.cursor()
+    cur.execute("""
         INSERT INTO usuarios (nombre, email, password)
         VALUES (?, ?, ?)
-    ''', (nombre, email, password))
-    
-    usuario_id = cursor.lastrowid
-
+    """, (nombre, email, password))
+    uid = cur.lastrowid
     conn.commit()
     conn.close()
-    return usuario_id
-
-def insertar_movimiento(descripcion, monto, usuario_id, categoria_id):
-    """Inserta un movimiento en la base de datos"""
-    conn = sqlite3.connect(db_path)
-    cursor = conn.cursor()
-    
-    cursor.execute('''
-        INSERT INTO movimientos (descripcion, monto, usuario_id, categoria_id)
-        VALUES (?, ?, ?, ?)
-    ''', (descripcion, monto, usuario_id, categoria_id))
-    
-    conn.commit()
-    conn.close()
+    return uid
 
 def insertar_categoria(nombre, tipo):
-    """Inserta una categoría en la base de datos"""
-    conn = sqlite3.connect(db_path)
-    cursor = conn.cursor()
-    
-    cursor.execute('''
+    """Inserta una categoría y retorna su id."""
+    conn = get_conn()
+    cur = conn.cursor()
+    cur.execute("""
         INSERT INTO categorias (nombre, tipo)
         VALUES (?, ?)
-    ''', (nombre, tipo))
-    categoria_id = cursor.lastrowid
-
+    """, (nombre, tipo))
+    cid = cur.lastrowid
     conn.commit()
     conn.close()
-    return categoria_id
+    return cid
+
+def insertar_movimiento(descripcion, monto, usuario_id, categoria_id):
+    """Inserta un movimiento."""
+    conn = get_conn()
+    cur = conn.cursor()
+    cur.execute("""
+        INSERT INTO movimientos (descripcion, monto, usuario_id, categoria_id)
+        VALUES (?, ?, ?, ?)
+    """, (descripcion, monto, usuario_id, categoria_id))
+    conn.commit()
+    conn.close()
 
 def insertar_categorias_iniciales():
-    """Inserta categorías iniciales en la base de datos si no existen"""
-    conn = sqlite3.connect(db_path)
-    cursor = conn.cursor()
-
-    cursor.execute("SELECT COUNT(*) FROM categorias")
-    count = cursor.fetchone()[0]
+    """Seed de categorías si aún no existen."""
+    conn = get_conn()
+    cur = conn.cursor()
+    cur.execute("SELECT COUNT(*) FROM categorias")
+    count = cur.fetchone()[0]
     if count == 0:
         categorias_iniciales = [
             ('Salario', 'ingreso'),
             ('Venta', 'ingreso'),
-            ('Pago de alquiler', 'gasto'),
             ('Cobro de Alquiler', 'ingreso'),
+            ('Otros Ingresos', 'ingreso'),
+            ('Pago de alquiler', 'gasto'),
             ('Servicios Públicos', 'gasto'),
             ('Supermercado', 'gasto'),
             ('Transporte', 'gasto'),
@@ -113,26 +118,23 @@ def insertar_categorias_iniciales():
             ('Compras', 'gasto'),
             ('Bares y Restaurantes', 'gasto'),
             ('Vestimenta', 'gasto'),
-            ('Entertenimiento', 'gasto'),
+            ('Entretenimiento', 'gasto'),
             ('Salud', 'gasto'),
             ('Educación', 'gasto'),
             ('Regalos', 'gasto'),
-            ('Otros Ingresos', 'ingreso'),
             ('Otros Gastos', 'gasto')
         ]
-
-        cursor.executemany('''
+        cur.executemany("""
             INSERT INTO categorias (nombre, tipo)
             VALUES (?, ?)
-        ''', categorias_iniciales)
-        print("✓ Categorías iniciales insertadas correctamente")
+        """, categorias_iniciales)
+        print("✓ Categorías iniciales insertadas")
     else:
-        print("✓ Las categorías iniciales ya existen en la base de datos")
-        
+        print("✓ Categorías ya existentes, no se insertan duplicados")
     conn.commit()
     conn.close()
-    print("Base de datos iniciada correctamente")
 
 if __name__ == "__main__":
-    create_database('GestiondeGastos.db')
+    create_database()
     insertar_categorias_iniciales()
+    print("✓ Base de datos inicializada correctamente")
