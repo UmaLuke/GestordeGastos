@@ -1,7 +1,7 @@
 # Backend/database.py
 from typing import List, Dict, Any, Optional
 import sqlite3
-from create_db import DB_PATH
+from BD.create_db import DB_PATH
 
 def get_conn():
     conn = sqlite3.connect(DB_PATH)
