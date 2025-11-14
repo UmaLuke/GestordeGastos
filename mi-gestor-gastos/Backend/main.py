@@ -13,24 +13,19 @@ from BD.create_db import create_database, insertar_categorias_iniciales
 
 # --- Configuración de Seguridad ---
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
-SECRET_KEY = "tu_clave_secreta_muy_larga_y_dificil_de_adivinar"  # ¡CAMBIA ESTO EN PRODUCCIÓN!
+SECRET_KEY = "tu_clave_secreta_muy_larga_y_dificil_de_adivinar"
 ALGORITHM = "HS256"
 ACCESS_TOKEN_EXPIRE_MINUTES = 60
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="token")
 
-# --- Funciones de Seguridad (CORREGIDAS) ---
+# --- Funciones de Seguridad ---
 def verify_password(plain_password: str, hashed_password: str) -> bool:
-    """Verifica una contraseña plana contra un hash."""
-    # passlib maneja la codificación internamente
     return pwd_context.verify(plain_password[:72], hashed_password)
 
 def get_password_hash(password: str) -> str:
-    """Genera un hash de una contraseña."""
-    # passlib maneja la codificación internamente
     return pwd_context.hash(password[:72])
 
 def create_access_token(data: dict, expires_delta: Optional[timedelta] = None):
-    """Crea un nuevo token JWT."""
     to_encode = data.copy()
     if expires_delta:
         expire = datetime.now(timezone.utc) + expires_delta
@@ -52,10 +47,13 @@ app.add_middleware(
     allow_origins=[
         "http://localhost:5173",
         "http://127.0.0.1:5173",
+        "http://localhost:3000",
+        "http://127.0.0.1:8000",
     ],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
+    expose_headers=["*"],
 )
 
 # ====== Modelos (Schemas) ======
@@ -98,7 +96,6 @@ class TokenData(BaseModel):
 
 # ====== Autenticación ======
 async def get_current_user(token: str = Depends(oauth2_scheme)):
-    """Decodifica el token y devuelve el usuario."""
     credentials_exception = HTTPException(
         status_code=status.HTTP_401_UNAUTHORIZED,
         detail="No se pudieron validar las credenciales",
@@ -122,7 +119,6 @@ async def get_current_user(token: str = Depends(oauth2_scheme)):
 
 @app.post("/token", response_model=Token)
 async def login_for_access_token(form_data: OAuth2PasswordRequestForm = Depends()):
-    """Endpoint de login que devuelve un token JWT."""
     user = fetch_one(
         "SELECT id, nombre, email, password FROM usuarios WHERE email = ?",
         (form_data.username,)
@@ -144,14 +140,9 @@ async def login_for_access_token(form_data: OAuth2PasswordRequestForm = Depends(
 
 @app.post("/usuarios", response_model=UsuarioOut, status_code=201)
 def create_usuario(data: UsuarioIn):
-    """Registra un nuevo usuario."""
-    # Verificar si el email ya existe
     existing = fetch_one("SELECT id FROM usuarios WHERE email = ?", (data.email,))
     if existing:
-        raise HTTPException(
-            status_code=400, 
-            detail="Este email ya está registrado"
-        )
+        raise HTTPException(status_code=400, detail="Este email ya está registrado")
     
     hashed_password = get_password_hash(data.password)
 
@@ -166,10 +157,9 @@ def create_usuario(data: UsuarioIn):
 
 @app.get("/usuarios/me", response_model=UsuarioOut)
 async def read_users_me(current_user: dict = Depends(get_current_user)):
-    """Devuelve los datos del usuario actual."""
     return current_user
 
-# ====== Categorías (Protegidas) ======
+# ====== Categorías ======
 @app.get("/categorias", response_model=List[CategoriaOut])
 def list_categorias(current_user: dict = Depends(get_current_user)):
     return fetch_all("SELECT id, nombre, tipo FROM categorias ORDER BY tipo, nombre")
@@ -198,10 +188,9 @@ def delete_categoria(cid: int, current_user: dict = Depends(get_current_user)):
     execute("DELETE FROM categorias WHERE id=?", (cid,))
     return
 
-# ====== Movimientos (Protegidos) ======
+# ====== Movimientos ======
 @app.get("/movimientos", response_model=List[MovimientoOut])
 def list_movimientos(current_user: dict = Depends(get_current_user)):
-    """Obtiene solo los movimientos del usuario actual."""
     user_id = current_user["id"]
     return fetch_all("""
       SELECT id, descripcion, monto, fecha, usuario_id, categoria_id
@@ -214,16 +203,44 @@ def list_movimientos(current_user: dict = Depends(get_current_user)):
 def create_movimiento(data: MovimientoIn, current_user: dict = Depends(get_current_user)):
     """Crea un nuevo movimiento asignado al usuario actual."""
     user_id = current_user["id"]
+    
+    # 🔥 FIX: Si no hay categoria_id, asignar "Ingresos" o la primera categoría de egreso
+    categoria_id = data.categoria_id
+    
+    if categoria_id is None:
+        if data.monto > 0:
+            # Es un ingreso: buscar o crear categoría "Ingresos"
+            cat = fetch_one("SELECT id FROM categorias WHERE nombre = 'Ingresos' AND tipo = 'ingreso'")
+            if not cat:
+                categoria_id = execute(
+                    "INSERT INTO categorias(nombre, tipo) VALUES(?, ?)",
+                    ("Ingresos", "ingreso")
+                )
+            else:
+                categoria_id = cat["id"]
+        else:
+            # Es un egreso: asignar la primera categoría de tipo 'egreso' o 'gasto'
+            cat = fetch_one("SELECT id FROM categorias WHERE tipo IN ('egreso', 'gasto') LIMIT 1")
+            if cat:
+                categoria_id = cat["id"]
+            else:
+                # Crear categoría por defecto si no existe
+                categoria_id = execute(
+                    "INSERT INTO categorias(nombre, tipo) VALUES(?, ?)",
+                    ("Otros", "gasto")
+                )
+    
+    # Insertar movimiento
     mid = execute(
         "INSERT INTO movimientos(descripcion, monto, usuario_id, categoria_id) VALUES(?,?,?,?)",
-        (data.descripcion, data.monto, user_id, data.categoria_id)
+        (data.descripcion, data.monto, user_id, categoria_id)
     )
+    
     row = fetch_one("SELECT * FROM movimientos WHERE id=?", (mid,))
     return row
 
 @app.put("/movimientos/{mid}", response_model=MovimientoOut)
 def update_movimiento(mid: int, data: MovimientoIn, current_user: dict = Depends(get_current_user)):
-    """Actualiza un movimiento del usuario actual."""
     user_id = current_user["id"]
     mov = fetch_one("SELECT id, usuario_id FROM movimientos WHERE id=?", (mid,))
     if not mov:
@@ -240,7 +257,6 @@ def update_movimiento(mid: int, data: MovimientoIn, current_user: dict = Depends
 
 @app.delete("/movimientos/{mid}", status_code=204)
 def delete_movimiento(mid: int, current_user: dict = Depends(get_current_user)):
-    """Elimina un movimiento del usuario actual."""
     user_id = current_user["id"]
     mov = fetch_one("SELECT id, usuario_id FROM movimientos WHERE id=?", (mid,))
     if not mov:

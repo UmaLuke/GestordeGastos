@@ -1,5 +1,6 @@
 // Frontend/src/Paginas/Movimientos.jsx
 import { useEffect, useMemo, useRef, useState } from "react";
+import { api } from "../api"; // ← Nuestra API configurada
 import Button from "../Componentes/ui/Button";
 import Card from "../Componentes/ui/Card";
 import Badge from "../Componentes/ui/Badge";
@@ -10,7 +11,6 @@ import {
 const CATEGORIAS = ["Insumos", "Logística", "Servicios", "Impuestos", "Otros"];
 const COLORS = ["#60a5fa", "#a78bfa", "#34d399", "#fbbf24", "#fb7185"];
 
-// YYYY-MM-DD local
 const todayLocal = () => {
   const d = new Date();
   const y = d.getFullYear();
@@ -21,11 +21,14 @@ const todayLocal = () => {
 
 const fmt = (n) => n.toLocaleString("es-AR", { style: "currency", currency: "ARS" });
 
-export default function Movimientos() {
-  // Arranca vacío
+export default function Movimientos({ user }) {
+  // 🔥 Ahora los items vienen del backend
   const [items, setItems] = useState([]);
+  const [categorias, setCategorias] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(null);
 
-  // Filtro por fecha
+  // Filtros por fecha
   const [fDesde, setFDesde] = useState("");
   const [fHasta, setFHasta] = useState("");
 
@@ -37,10 +40,54 @@ export default function Movimientos() {
     categoria: "Insumos",
     monto: "",
   });
+  const [submitting, setSubmitting] = useState(false);
 
-  // Alerta por fondos insuficientes (cuando cruza a negativo)
+  // Alerta fondos insuficientes
   const [showAlert, setShowAlert] = useState(false);
   const prevDisponible = useRef(0);
+
+  // 🔥 CARGAR DATOS AL INICIO
+  useEffect(() => {
+    const cargarDatos = async () => {
+      try {
+        setLoading(true);
+        setError(null);
+
+        // Cargar movimientos y categorías en paralelo
+        const [movimientosRes, categoriasRes] = await Promise.all([
+          api.get("/movimientos"),
+          api.get("/categorias")
+        ]);
+
+        console.log("✅ Movimientos cargados:", movimientosRes.data);
+        console.log("✅ Categorías cargadas:", categoriasRes.data);
+
+        // Transformar movimientos para que coincidan con el formato esperado
+        const movimientosTransformados = movimientosRes.data.map(m => ({
+          fecha: m.fecha,
+          concepto: m.descripcion,
+          categoria: m.categoria_id ? 
+            categoriasRes.data.find(c => c.id === m.categoria_id)?.nombre || "Otros" 
+            : "Ingresos",
+          tipo: m.monto > 0 ? "ingreso" : "egreso",
+          monto: Math.abs(m.monto),
+          id: m.id // Guardamos el ID para poder editar/borrar
+        }));
+
+        setItems(movimientosTransformados);
+        setCategorias(categoriasRes.data);
+      } catch (err) {
+        console.error("❌ Error cargando datos:", err);
+        setError(err.response?.data?.detail || "Error al cargar los datos");
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    if (user) {
+      cargarDatos();
+    }
+  }, [user]);
 
   const filtrados = useMemo(() => {
     return items.filter((it) => {
@@ -59,18 +106,17 @@ export default function Movimientos() {
     return { ingresos, egresos, disponible: ingresos - egresos };
   }, [filtrados]);
 
-  // Detectar cruce a negativo y mostrar alerta 1 sola vez por cruce
+  // Detectar cruce a negativo
   useEffect(() => {
     if (totales.disponible < 0 && prevDisponible.current >= 0) {
       setShowAlert(true);
-      // auto-ocultar luego de 4s (opcional)
       const t = setTimeout(() => setShowAlert(false), 4000);
       return () => clearTimeout(t);
     }
     prevDisponible.current = totales.disponible;
   }, [totales.disponible]);
 
-  // Donut: egresos por categoría
+  // Datos para el gráfico
   const pieData = useMemo(() => {
     const porCat = new Map();
     filtrados.filter(i => i.tipo === "egreso").forEach(i => {
@@ -79,33 +125,95 @@ export default function Movimientos() {
     return Array.from(porCat, ([name, value]) => ({ name, value }));
   }, [filtrados]);
 
-  const addMovimiento = (e) => {
+  // 🔥 GUARDAR MOVIMIENTO EN LA BASE DE DATOS
+  const addMovimiento = async (e) => {
     e.preventDefault();
     const montoNum = Number(form.monto);
     if (!form.concepto || !montoNum || montoNum <= 0) return;
 
-    const nuevo = {
-      fecha: todayLocal(), // SIEMPRE hoy
-      concepto: form.concepto,
-      categoria: form.tipo === "ingreso" ? "Ingresos" : form.categoria,
-      tipo: form.tipo,
-      monto: montoNum,
-    };
+    setSubmitting(true);
 
-    setItems(prev => [nuevo, ...prev]);
-    setForm({ tipo: "ingreso", concepto: "", categoria: "Insumos", monto: "" });
-    setOpenForm(false);
+    try {
+      // Buscar el ID de la categoría
+      let categoriaId = null;
+      if (form.tipo === "egreso") {
+        const cat = categorias.find(c => c.nombre === form.categoria && c.tipo === "egreso");
+        categoriaId = cat?.id || null;
+      }
+
+      // Enviar al backend
+      const payload = {
+        descripcion: form.concepto,
+        monto: form.tipo === "ingreso" ? montoNum : -montoNum, // Negativos para egresos
+        categoria_id: categoriaId
+      };
+
+      console.log("📤 Enviando movimiento:", payload);
+
+      const response = await api.post("/movimientos", payload);
+      console.log("✅ Movimiento guardado:", response.data);
+
+      // Agregar a la lista local
+      const nuevoMovimiento = {
+        fecha: response.data.fecha,
+        concepto: response.data.descripcion,
+        categoria: categoriaId ? 
+          categorias.find(c => c.id === categoriaId)?.nombre || "Otros"
+          : "Ingresos",
+        tipo: form.tipo,
+        monto: montoNum,
+        id: response.data.id
+      };
+
+      setItems(prev => [nuevoMovimiento, ...prev]);
+
+      // Limpiar formulario
+      setForm({ tipo: "ingreso", concepto: "", categoria: "Insumos", monto: "" });
+      setOpenForm(false);
+    } catch (err) {
+      console.error("❌ Error guardando movimiento:", err);
+      alert(err.response?.data?.detail || "Error al guardar el movimiento");
+    } finally {
+      setSubmitting(false);
+    }
   };
+
+  // 🔥 ESTADO DE CARGA
+  if (loading) {
+    return (
+      <main className="bg-gray-50">
+        <div className="max-w-6xl mx-auto px-4 py-16 text-center">
+          <div className="inline-block h-8 w-8 animate-spin rounded-full border-4 border-solid border-blue-600 border-r-transparent" />
+          <p className="mt-4 text-gray-600">Cargando movimientos...</p>
+        </div>
+      </main>
+    );
+  }
+
+  // 🔥 ESTADO DE ERROR
+  if (error) {
+    return (
+      <main className="bg-gray-50">
+        <div className="max-w-6xl mx-auto px-4 py-16 text-center">
+          <p className="text-red-600 mb-4">❌ {error}</p>
+          <Button onClick={() => window.location.reload()}>
+            Reintentar
+          </Button>
+        </div>
+      </main>
+    );
+  }
 
   return (
     <main className="bg-gray-50">
       <div className="max-w-6xl mx-auto px-4 py-10 space-y-8">
-        {/* Encabezado + filtros */}
+        {/* Encabezado */}
         <div className="flex flex-col md:flex-row md:items-end md:justify-between gap-4">
           <div>
             <h2 className="text-2xl font-semibold">Movimientos</h2>
             <p className="text-gray-600">
-              Cargá ingresos/egresos del día. La fecha se completa automáticamente.
+              Hola <span className="font-medium text-gray-900">{user?.nombre || user?.email}</span>, 
+              aquí están tus movimientos guardados.
             </p>
           </div>
 
@@ -137,29 +245,21 @@ export default function Movimientos() {
 
         {/* Alerta fondos insuficientes */}
         {showAlert && (
-          <div
-            className="rounded-xl border border-rose-200 bg-rose-50 text-rose-800 px-4 py-3 flex items-center justify-between"
-            role="alert"
-            aria-live="assertive"
-          >
-            <span className="font-semibold">FONDOS INSUFICIENTES</span>
-            <button
-              onClick={() => setShowAlert(false)}
-              className="text-rose-700 hover:underline text-sm"
-            >
+          <div className="rounded-xl border border-rose-200 bg-rose-50 text-rose-800 px-4 py-3 flex items-center justify-between">
+            <span className="font-semibold">⚠️ FONDOS INSUFICIENTES</span>
+            <button onClick={() => setShowAlert(false)} className="text-rose-700 hover:underline text-sm">
               Ocultar
             </button>
           </div>
         )}
 
-        {/* Formulario (fecha fija, sin spinners en Monto) */}
+        {/* Formulario */}
         {openForm && (
           <Card>
             <form onSubmit={addMovimiento} className="grid md:grid-cols-6 gap-3 items-end">
-              {/* Fecha mostrada, NO editable */}
               <div className="md:col-span-1">
                 <label className="text-sm font-medium">Fecha</label>
-                <div className="w-full border rounded-xl px-3 py-2 text-sm bg-gray-50 text-gray-700 select-none">
+                <div className="w-full border rounded-xl px-3 py-2 text-sm bg-gray-50 text-gray-700">
                   {todayLocal()}
                 </div>
               </div>
@@ -170,6 +270,7 @@ export default function Movimientos() {
                   value={form.tipo}
                   onChange={(e) => setForm({ ...form, tipo: e.target.value })}
                   className="w-full border rounded-xl px-3 py-2 text-sm bg-white"
+                  disabled={submitting}
                 >
                   <option value="ingreso">Ingreso</option>
                   <option value="egreso">Egreso</option>
@@ -183,6 +284,7 @@ export default function Movimientos() {
                     value={form.categoria}
                     onChange={(e) => setForm({ ...form, categoria: e.target.value })}
                     className="w-full border rounded-xl px-3 py-2 text-sm bg-white"
+                    disabled={submitting}
                   >
                     {CATEGORIAS.map((c) => <option key={c} value={c}>{c}</option>)}
                   </select>
@@ -198,6 +300,7 @@ export default function Movimientos() {
                   className="w-full border rounded-xl px-3 py-2 text-sm"
                   placeholder={form.tipo === "ingreso" ? "Ej: Transferencia" : "Ej: Compra denim"}
                   required
+                  disabled={submitting}
                 />
               </div>
 
@@ -209,17 +312,25 @@ export default function Movimientos() {
                   min="0"
                   value={form.monto}
                   onChange={(e) => setForm({ ...form, monto: e.target.value })}
-                  className="w-full border rounded-xl px-3 py-2 text-sm appearance-none [appearance:textfield] [-moz-appearance:textfield]"
+                  className="w-full border rounded-xl px-3 py-2 text-sm"
                   placeholder="0,00"
                   required
+                  disabled={submitting}
                 />
               </div>
 
               <div className="md:col-span-6 flex justify-end gap-2">
-                <Button variant="outline" type="button" onClick={() => setOpenForm(false)}>
+                <Button 
+                  variant="outline" 
+                  type="button" 
+                  onClick={() => setOpenForm(false)}
+                  disabled={submitting}
+                >
                   Cancelar
                 </Button>
-                <Button type="submit">Guardar</Button>
+                <Button type="submit" disabled={submitting}>
+                  {submitting ? "Guardando..." : "Guardar"}
+                </Button>
               </div>
             </form>
           </Card>
@@ -243,11 +354,11 @@ export default function Movimientos() {
           </Card>
         </div>
 
-        {/* Tabla + gráfico */}
+        {/* Tabla + Gráfico */}
         <div className="grid lg:grid-cols-3 gap-6">
           <Card className="lg:col-span-2 overflow-hidden p-0">
             <div className="px-4 py-3 border-b">
-              <h3 className="font-semibold">Listado</h3>
+              <h3 className="font-semibold">Listado ({filtrados.length})</h3>
             </div>
             <div className="overflow-x-auto">
               <table className="w-full text-sm">
@@ -260,31 +371,37 @@ export default function Movimientos() {
                   </tr>
                 </thead>
                 <tbody>
-                  {filtrados.map((f, i) => (
-                    <tr key={i} className="border-t">
-                      <td className="px-4 py-2">{f.fecha}</td>
-                      <td className="px-4 py-2">{f.concepto}</td>
-                      <td className="px-4 py-2">
-                        {f.tipo === "ingreso" ? (
-                          <Badge color="green">Ingresos</Badge>
-                        ) : (
-                          <Badge
-                            color={
+                  {filtrados.length === 0 ? (
+                    <tr>
+                      <td colSpan="4" className="px-4 py-8 text-center text-gray-500">
+                        No hay movimientos. ¡Crea el primero! 🚀
+                      </td>
+                    </tr>
+                  ) : (
+                    filtrados.map((f, i) => (
+                      <tr key={f.id || i} className="border-t hover:bg-gray-50">
+                        <td className="px-4 py-2">{f.fecha}</td>
+                        <td className="px-4 py-2">{f.concepto}</td>
+                        <td className="px-4 py-2">
+                          {f.tipo === "ingreso" ? (
+                            <Badge color="green">Ingresos</Badge>
+                          ) : (
+                            <Badge color={
                               f.categoria === "Insumos" ? "blue" :
                               f.categoria === "Logística" ? "violet" :
                               f.categoria === "Servicios" ? "green" :
                               f.categoria === "Impuestos" ? "red" : "gray"
-                            }
-                          >
-                            {f.categoria}
-                          </Badge>
-                        )}
-                      </td>
-                      <td className={`px-4 py-2 text-right font-medium ${f.tipo === "egreso" ? "text-rose-600" : "text-emerald-600"}`}>
-                        {f.tipo === "egreso" ? "- " + fmt(f.monto) : "+ " + fmt(f.monto)}
-                      </td>
-                    </tr>
-                  ))}
+                            }>
+                              {f.categoria}
+                            </Badge>
+                          )}
+                        </td>
+                        <td className={`px-4 py-2 text-right font-medium ${f.tipo === "egreso" ? "text-rose-600" : "text-emerald-600"}`}>
+                          {f.tipo === "egreso" ? "- " + fmt(f.monto) : "+ " + fmt(f.monto)}
+                        </td>
+                      </tr>
+                    ))
+                  )}
                 </tbody>
               </table>
             </div>
@@ -303,7 +420,7 @@ export default function Movimientos() {
                         <Cell key={idx} fill={COLORS[idx % COLORS.length]} />
                       ))}
                     </Pie>
-                    <Tooltip formatter={(v) => fmt(Number(v))} separator=" " />
+                    <Tooltip formatter={(v) => fmt(Number(v))} />
                     <Legend />
                   </PieChart>
                 </ResponsiveContainer>

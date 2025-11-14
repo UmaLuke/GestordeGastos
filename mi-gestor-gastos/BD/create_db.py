@@ -61,6 +61,12 @@ def create_database():
     conn.close()
     print(f"✓ Esquema listo en {DB_PATH}")
 
+def get_conn():
+    conn = sqlite3.connect(DB_PATH, timeout=10.0)
+    conn.execute("PRAGMA foreign_keys = ON")
+    conn.execute("PRAGMA journal_mode=WAL")  # ✅
+    return conn
+
 def insertar_usuarios(nombre, email, password):
     """Inserta un usuario y retorna su id."""
     conn = get_conn()
