@@ -1,4 +1,3 @@
-// Frontend/src/Paginas/Movimientos.jsx
 import { useEffect, useMemo, useRef, useState } from "react";
 import { api } from "../api"; // ← Nuestra API configurada
 import Button from "../Componentes/ui/Button";
@@ -22,16 +21,14 @@ const todayLocal = () => {
 const fmt = (n) => n.toLocaleString("es-AR", { style: "currency", currency: "ARS" });
 
 export default function Movimientos({ user }) {
-  // 🔥 Ahora los items vienen del backend
+  //Los items vienen del backend
   const [items, setItems] = useState([]);
   const [categorias, setCategorias] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
-
   // Filtros por fecha
   const [fDesde, setFDesde] = useState("");
   const [fHasta, setFHasta] = useState("");
-
   // Formulario
   const [openForm, setOpenForm] = useState(false);
   const [form, setForm] = useState({
@@ -41,12 +38,10 @@ export default function Movimientos({ user }) {
     monto: "",
   });
   const [submitting, setSubmitting] = useState(false);
-
   // Alerta fondos insuficientes
   const [showAlert, setShowAlert] = useState(false);
   const prevDisponible = useRef(0);
-
-  // 🔥 CARGAR DATOS AL INICIO
+  // CARGAR DATOS AL INICIO
   useEffect(() => {
     const cargarDatos = async () => {
       try {
@@ -125,7 +120,7 @@ export default function Movimientos({ user }) {
     return Array.from(porCat, ([name, value]) => ({ name, value }));
   }, [filtrados]);
 
-  // 🔥 GUARDAR MOVIMIENTO EN LA BASE DE DATOS
+  // GUARDAR MOVIMIENTO EN LA BASE DE DATOS
   const addMovimiento = async (e) => {
     e.preventDefault();
     const montoNum = Number(form.monto);
@@ -178,7 +173,7 @@ export default function Movimientos({ user }) {
     }
   };
 
-  // 🔥 ESTADO DE CARGA
+  // ESTADO DE CARGA
   if (loading) {
     return (
       <main className="bg-gray-50">
@@ -190,7 +185,7 @@ export default function Movimientos({ user }) {
     );
   }
 
-  // 🔥 ESTADO DE ERROR
+  // ESTADO DE ERROR
   if (error) {
     return (
       <main className="bg-gray-50">

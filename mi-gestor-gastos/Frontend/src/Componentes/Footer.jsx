@@ -1,4 +1,3 @@
-// Frontend/src/Componentes/Footer.jsx
 export default function Footer() {
   return (
     <footer className="bg-[#0E0A1F] text-gray-300">

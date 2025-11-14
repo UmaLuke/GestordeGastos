@@ -1,4 +1,3 @@
-// Frontend/src/Componentes/ui/Badge.jsx
 export default function Badge({
   children,
   color = "gray",

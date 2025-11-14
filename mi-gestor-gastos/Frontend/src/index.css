@@ -16,7 +16,7 @@ body { @apply bg-white text-gray-800 antialiased; animation: fade-in 0.8s ease-i
 }
 .bg-animated { animation: move-bg 60s linear infinite; }
 
-/* --- Ocultar flechas de los inputs number --- */
+/*Ocultar flechas de los inputs number */
 input[type="number"]::-webkit-outer-spin-button,
 input[type="number"]::-webkit-inner-spin-button {
   -webkit-appearance: none;
@@ -27,7 +27,7 @@ input[type="number"] {
   appearance: textfield;      /* estándar */
 }
 
-/* Sutil ruido sobre el footer para dar profundidad */
+/*Profundidad en el footer */
 footer {
   background-image: radial-gradient(1200px 120px at 20% -20%, rgba(124,77,255,.15), transparent),
                     radial-gradient(1000px 100px at 80% -10%, rgba(102,240,209,.10), transparent);

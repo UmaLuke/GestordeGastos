@@ -1,4 +1,3 @@
-# Backend/main.py
 from fastapi import FastAPI, HTTPException, Depends, status
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
@@ -11,14 +10,14 @@ from passlib.context import CryptContext
 from .database import fetch_all, fetch_one, execute
 from BD.create_db import create_database, insertar_categorias_iniciales
 
-# --- Configuración de Seguridad ---
+#Configuraciones de Seguridad
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 SECRET_KEY = "tu_clave_secreta_muy_larga_y_dificil_de_adivinar"
 ALGORITHM = "HS256"
 ACCESS_TOKEN_EXPIRE_MINUTES = 60
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="token")
 
-# --- Funciones de Seguridad ---
+#Funciones de S
 def verify_password(plain_password: str, hashed_password: str) -> bool:
     return pwd_context.verify(plain_password[:72], hashed_password)
 
@@ -35,13 +34,13 @@ def create_access_token(data: dict, expires_delta: Optional[timedelta] = None):
     encoded_jwt = jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
     return encoded_jwt
 
-# --- Inicialización ---
+#Iniciamos
 create_database()
 insertar_categorias_iniciales()
 
 app = FastAPI(title="Gestor de Gastos API")
 
-# ⚠️ CORS debe ir ANTES de las rutas
+#CORS
 app.add_middleware(
     CORSMiddleware,
     allow_origins=[
@@ -56,7 +55,7 @@ app.add_middleware(
     expose_headers=["*"],
 )
 
-# ====== Modelos (Schemas) ======
+#Modelos (Schemas)
 class UsuarioIn(BaseModel):
     nombre: str
     email: str
@@ -94,7 +93,7 @@ class Token(BaseModel):
 class TokenData(BaseModel):
     email: Optional[str] = None
 
-# ====== Autenticación ======
+#Autenticación de usuarios 
 async def get_current_user(token: str = Depends(oauth2_scheme)):
     credentials_exception = HTTPException(
         status_code=status.HTTP_401_UNAUTHORIZED,
@@ -115,8 +114,8 @@ async def get_current_user(token: str = Depends(oauth2_scheme)):
         raise credentials_exception
     return user
 
-# ====== Endpoints ======
 
+#Endpoints
 @app.post("/token", response_model=Token)
 async def login_for_access_token(form_data: OAuth2PasswordRequestForm = Depends()):
     user = fetch_one(
@@ -159,7 +158,7 @@ def create_usuario(data: UsuarioIn):
 async def read_users_me(current_user: dict = Depends(get_current_user)):
     return current_user
 
-# ====== Categorías ======
+#Categorías
 @app.get("/categorias", response_model=List[CategoriaOut])
 def list_categorias(current_user: dict = Depends(get_current_user)):
     return fetch_all("SELECT id, nombre, tipo FROM categorias ORDER BY tipo, nombre")
@@ -188,7 +187,7 @@ def delete_categoria(cid: int, current_user: dict = Depends(get_current_user)):
     execute("DELETE FROM categorias WHERE id=?", (cid,))
     return
 
-# ====== Movimientos ======
+#Movimientos
 @app.get("/movimientos", response_model=List[MovimientoOut])
 def list_movimientos(current_user: dict = Depends(get_current_user)):
     user_id = current_user["id"]
@@ -204,12 +203,12 @@ def create_movimiento(data: MovimientoIn, current_user: dict = Depends(get_curre
     """Crea un nuevo movimiento asignado al usuario actual."""
     user_id = current_user["id"]
     
-    # 🔥 FIX: Si no hay categoria_id, asignar "Ingresos" o la primera categoría de egreso
+    #Si no hay categoria_id, asignar "Ingresos"
     categoria_id = data.categoria_id
     
     if categoria_id is None:
         if data.monto > 0:
-            # Es un ingreso: buscar o crear categoría "Ingresos"
+            #Buscar o crear categoría "Ingresos"
             cat = fetch_one("SELECT id FROM categorias WHERE nombre = 'Ingresos' AND tipo = 'ingreso'")
             if not cat:
                 categoria_id = execute(
@@ -219,7 +218,7 @@ def create_movimiento(data: MovimientoIn, current_user: dict = Depends(get_curre
             else:
                 categoria_id = cat["id"]
         else:
-            # Es un egreso: asignar la primera categoría de tipo 'egreso' o 'gasto'
+            #Asignar la primera categoría de tipo 'egreso' o 'gasto'
             cat = fetch_one("SELECT id FROM categorias WHERE tipo IN ('egreso', 'gasto') LIMIT 1")
             if cat:
                 categoria_id = cat["id"]

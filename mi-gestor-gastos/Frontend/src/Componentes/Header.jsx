@@ -1,4 +1,3 @@
-// Frontend/src/Componentes/Header.jsx
 export default function Header() {
   return (
     <header className="w-full bg-gradient-to-r from-blue-600 via-indigo-600 to-violet-600 text-white">

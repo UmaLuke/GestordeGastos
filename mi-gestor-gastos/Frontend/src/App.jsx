@@ -1,4 +1,3 @@
-// Frontend/src/App.jsx
 import { BrowserRouter, Routes, Route, useLocation, useNavigate } from "react-router-dom";
 import { useEffect, useState } from "react";
 import Header from "./Componentes/Header";
@@ -9,13 +8,13 @@ import AuthModal from "./Componentes/AuthModal";
 import Home from "./Paginas/Home";
 import Movimientos from "./Paginas/Movimientos";
 import CTAFullWidth from "./Componentes/CTAFullWidth";
-import { api } from "./api"; // Importamos nuestra API configurada
+import { api } from "./api"; 
 
 function AppInner() {
   const [authOpen, setAuthOpen] = useState(false);
   const [mode, setMode] = useState("login");
   
-  // --- Estados para la autenticación ---
+  //Estados para la autenticación
   const [user, setUser] = useState(null);
   const [authError, setAuthError] = useState(null);
   const [loading, setLoading] = useState(false);
@@ -23,7 +22,7 @@ function AppInner() {
   const location = useLocation();
   const navigate = useNavigate();
 
-  // --- Cargar usuario al inicio si hay token ---
+  //Cargar usuario al inicio si hay token
   useEffect(() => {
     const token = localStorage.getItem("user_token");
     if (token) {
@@ -39,13 +38,13 @@ function AppInner() {
     }
   }, []);
 
-  // --- Abrir modal desde URL (?auth=register) ---
+  // Abrir modal desde URL (?auth=register)
   useEffect(() => {
     const params = new URLSearchParams(location.search);
     if (params.get("auth") === "register") openRegister();
   }, [location.search]);
 
-  // --- Abrir modales ---
+  // Abrir modales
   const openLogin = () => { 
     setMode("login"); 
     setAuthError(null); 
@@ -58,7 +57,7 @@ function AppInner() {
     setAuthOpen(true); 
   };
 
-  // --- Cerrar modal ---
+  // Cerrar modal
   const handleCloseAuth = () => {
     setAuthOpen(false);
     setAuthError(null);
@@ -69,7 +68,7 @@ function AppInner() {
     }
   };
 
-  // --- 🔥 FUNCIÓN PRINCIPAL: Manejar Registro y Login ---
+  // Manejo de registro y login 
   const handleSubmitAuth = async ({ mode, email, password }) => {
     setAuthError(null);
     setLoading(true);
@@ -120,9 +119,8 @@ function AppInner() {
     }
   };
 
-  // --- Función auxiliar para el Login ---
+  
   const handleLogin = async (email, password) => {
-    // FastAPI espera FormData para OAuth2PasswordRequestForm
     const formData = new FormData();
     formData.append("username", email);
     formData.append("password", password);

@@ -1,4 +1,3 @@
-// Frontend/src/Componentes/Features.jsx
 export default function Features() {
   const items = [
     { title: "1) Creá tu cuenta", desc: "Registrate con tu email en segundos." },

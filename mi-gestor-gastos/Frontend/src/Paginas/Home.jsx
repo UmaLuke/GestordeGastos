@@ -1,4 +1,3 @@
-// Frontend/src/Paginas/Home.jsx
 import { Link } from "react-router-dom";
 import Features from "../Componentes/Features";
 import cielo from "../assets/cielo.jpg";

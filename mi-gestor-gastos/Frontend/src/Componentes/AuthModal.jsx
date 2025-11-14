@@ -1,4 +1,3 @@
-// Frontend/src/Componentes/AuthModal.jsx
 import { useState, useEffect } from "react";
 
 export default function AuthModal({ 

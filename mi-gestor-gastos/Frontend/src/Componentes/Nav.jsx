@@ -1,4 +1,3 @@
-// Frontend/src/Componentes/Nav.jsx
 import { NavLink } from "react-router-dom";
 
 export default function Nav({ user, onLogout, onOpenLogin, onOpenRegister }) {

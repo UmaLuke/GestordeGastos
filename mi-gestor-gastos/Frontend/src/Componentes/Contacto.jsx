@@ -1,4 +1,3 @@
-// Frontend/src/Componentes/Contacto.jsx
 import { useState } from "react";
 
 export default function Contacto() {
@@ -7,7 +6,6 @@ export default function Contacto() {
 
   const handleSubmit = (e) => {
     e.preventDefault();
-    // acá podrías conectar con tu backend (por ejemplo, FastAPI o un endpoint POST)
     setOk(true);
     setForm({ nombre: "", email: "", mensaje: "" });
     setTimeout(() => setOk(false), 2500);

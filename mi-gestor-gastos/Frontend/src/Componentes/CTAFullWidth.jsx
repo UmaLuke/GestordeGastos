@@ -1,4 +1,3 @@
-// Frontend/src/Componentes/CTAFullWidth.jsx
 import { Link } from "react-router-dom";
 
 export default function CTAFullWidth({ onRegister }) {

@@ -1,4 +1,3 @@
-// Frontend/src/Componentes/ui/Button.jsx
 export default function Button({
   children,
   variant = "primary",

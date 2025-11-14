@@ -1,4 +1,3 @@
-// Frontend/src/Componentes/ui/Card.jsx
 export default function Card({ className = "", children, hover = true, ...props }) {
   const base =
     "bg-white border rounded-2xl shadow-sm p-6 " +
