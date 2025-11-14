@@ -12,7 +12,7 @@ from BD.create_db import create_database, insertar_categorias_iniciales
 
 #Configuraciones de Seguridad
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
-SECRET_KEY = "tu_clave_secreta_muy_larga_y_dificil_de_adivinar"
+SECRET_KEY = "nosequesepuedaponeraquiperoesperoqueseadificil"
 ALGORITHM = "HS256"
 ACCESS_TOKEN_EXPIRE_MINUTES = 60
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="token")
