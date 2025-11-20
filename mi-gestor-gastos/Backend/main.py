@@ -265,3 +265,52 @@ def delete_movimiento(mid: int, current_user: dict = Depends(get_current_user)):
 
     execute("DELETE FROM movimientos WHERE id=?", (mid,))
     return
+
+#Contacto
+class ContactoIn(BaseModel):
+    nombre: str
+    email: str
+    mensaje: str
+
+class ContactoOut(BaseModel):
+    id: int
+    nombre: str
+    email: str
+    mensaje: str
+    fecha: str
+    leido: int
+
+#Endpoints
+@app.post("/contacto", response_model=ContactoOut, status_code=201)
+def create_contacto(data: ContactoIn):
+    """
+    Endpoint PÚBLICO (sin autenticación) para recibir mensajes de contacto
+    """
+    try:
+        cid = execute(
+            "INSERT INTO contacto(nombre, email, mensaje) VALUES(?, ?, ?)",
+            (data.nombre, data.email, data.mensaje)
+        )
+        row = fetch_one("SELECT * FROM contacto WHERE id=?", (cid,))
+        return row
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"Error al enviar mensaje: {str(e)}")
+
+@app.get("/contacto", response_model=List[ContactoOut])
+def list_contacto(current_user: dict = Depends(get_current_user)):
+    """
+    Endpoint PROTEGIDO para que admins vean los mensajes recibidos
+    """
+    return fetch_all("SELECT * FROM contacto ORDER BY fecha DESC")
+
+@app.patch("/contacto/{cid}/leido")
+def mark_contacto_leido(cid: int, current_user: dict = Depends(get_current_user)):
+    """
+    Marcar un mensaje como leído
+    """
+    row = fetch_one("SELECT id FROM contacto WHERE id=?", (cid,))
+    if not row:
+        raise HTTPException(404, "Mensaje no encontrado")
+    
+    execute("UPDATE contacto SET leido = 1 WHERE id=?", (cid,))
+    return {"message": "Mensaje marcado como leído"}

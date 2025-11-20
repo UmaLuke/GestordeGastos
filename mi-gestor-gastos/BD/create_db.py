@@ -1,16 +1,17 @@
-# create_db.py
+# BD/create_db.py
 import sqlite3
 import os
 
-# === Configuración de ruta absoluta a la DB (en la misma carpeta que este archivo) ===
+# === Configuración de ruta absoluta a la DB ===
 BASE_DIR = os.path.dirname(__file__)
 DB_NAME = "GestiondeGastos.db"
 DB_PATH = os.path.abspath(os.path.join(BASE_DIR, DB_NAME))
 
 def get_conn():
-    """Devuelve conexión con foreign_keys activado."""
-    conn = sqlite3.connect(DB_PATH)
+    """Devuelve conexión con foreign_keys activado y WAL mode."""
+    conn = sqlite3.connect(DB_PATH, timeout=10.0)
     conn.execute("PRAGMA foreign_keys = ON")
+    conn.execute("PRAGMA journal_mode=WAL")
     return conn
 
 def create_database():
@@ -33,17 +34,16 @@ def create_database():
     CREATE TABLE IF NOT EXISTS categorias (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         nombre TEXT NOT NULL UNIQUE,
-        tipo TEXT NOT NULL CHECK (tipo IN ('ingreso', 'gasto'))
+        tipo TEXT NOT NULL CHECK (tipo IN ('ingreso', 'gasto', 'egreso'))
     )
     """)
 
     # Tabla movimientos
-    # NOTA: categoria_id SIN NOT NULL para que ON DELETE SET NULL sea válido
     cur.execute("""
     CREATE TABLE IF NOT EXISTS movimientos (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         descripcion TEXT NOT NULL,
-        monto REAL NOT NULL CHECK (monto >= 0),
+        monto REAL NOT NULL,
         fecha TEXT DEFAULT (datetime('now', 'localtime')),
         usuario_id INTEGER NOT NULL,
         categoria_id INTEGER,
@@ -52,20 +52,27 @@ def create_database():
     )
     """)
 
+    # Tabla contactos
+    cur.execute("""
+    CREATE TABLE IF NOT EXISTS contacto (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        nombre TEXT NOT NULL,
+        email TEXT NOT NULL,
+        mensaje TEXT NOT NULL,
+        fecha TEXT DEFAULT (datetime('now', 'localtime')),
+        leido INTEGER DEFAULT 0
+    )
+    """)
+
     # Índices recomendados
     cur.execute("CREATE INDEX IF NOT EXISTS idx_movimientos_usuario ON movimientos(usuario_id)")
     cur.execute("CREATE INDEX IF NOT EXISTS idx_movimientos_categoria ON movimientos(categoria_id)")
     cur.execute("CREATE INDEX IF NOT EXISTS idx_categorias_tipo ON categorias(tipo)")
+    cur.execute("CREATE INDEX IF NOT EXISTS idx_contacto_fecha ON contacto(fecha DESC)")
 
     conn.commit()
     conn.close()
     print(f"✓ Esquema listo en {DB_PATH}")
-
-def get_conn():
-    conn = sqlite3.connect(DB_PATH, timeout=10.0)
-    conn.execute("PRAGMA foreign_keys = ON")
-    conn.execute("PRAGMA journal_mode=WAL")  # ✅
-    return conn
 
 def insertar_usuarios(nombre, email, password):
     """Inserta un usuario y retorna su id."""
@@ -116,6 +123,7 @@ def insertar_categorias_iniciales():
             ('Venta', 'ingreso'),
             ('Cobro de Alquiler', 'ingreso'),
             ('Otros Ingresos', 'ingreso'),
+            ('Ingresos', 'ingreso'),
             ('Pago de alquiler', 'gasto'),
             ('Servicios Públicos', 'gasto'),
             ('Supermercado', 'gasto'),

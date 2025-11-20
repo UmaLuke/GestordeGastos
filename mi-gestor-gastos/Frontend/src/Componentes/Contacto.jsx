@@ -1,14 +1,31 @@
 import { useState } from "react";
+import { api } from "../api";
 
 export default function Contacto() {
   const [form, setForm] = useState({ nombre: "", email: "", mensaje: "" });
   const [ok, setOk] = useState(false);
 
-  const handleSubmit = (e) => {
+  const [error, setError] = useState(null);
+  const [loading, setLoading] = useState(false);
+
+  const handleSubmit = async (e) => {
     e.preventDefault();
-    setOk(true);
-    setForm({ nombre: "", email: "", mensaje: "" });
-    setTimeout(() => setOk(false), 2500);
+    setLoading(true);
+    setError(null);
+
+    try {
+      await api.post("/contacto", form);
+      setOk(true);
+      setForm({ nombre: "", email: "", mensaje: "" });
+
+      setTimeout(() => { setOk(false); }, 3000);
+    } catch (err) {
+      console.error("Error al enviar el mensaje:", err);
+      setError(err.response?.data?.message || "Error al enviar el mensaje.");
+    } finally{
+      setLoading(false);
+    }
+
   };
 
   return (
@@ -32,6 +49,7 @@ export default function Contacto() {
             value={form.nombre}
             onChange={(e) => setForm({ ...form, nombre: e.target.value })}
             required
+            disabled={loading}
           />
           <input
             type="email"
@@ -40,6 +58,7 @@ export default function Contacto() {
             value={form.email}
             onChange={(e) => setForm({ ...form, email: e.target.value })}
             required
+            disabled={loading}
           />
           <textarea
             rows="6"
@@ -48,13 +67,15 @@ export default function Contacto() {
             value={form.mensaje}
             onChange={(e) => setForm({ ...form, mensaje: e.target.value })}
             required
+            disabled={loading}
           />
           <div className="flex justify-end pt-1">
             <button
               type="submit"
+              disabled={loading}
               className="px-6 py-2 rounded-md bg-orange-500 hover:bg-orange-600 text-white font-semibold"
             >
-              ENVIAR
+              {loading ? "Enviando..." : "Enviar"}
             </button>
           </div>
         </form>
@@ -65,6 +86,11 @@ export default function Contacto() {
           </div>
         )}
       </div>
+      {error && (
+          <div className="mt-4 text-sm text-red-700 bg-red-50 border border-red-200 rounded-md px-3 py-2">
+            ❌ {error}
+          </div>
+        )}
     </section>
   );
 }
