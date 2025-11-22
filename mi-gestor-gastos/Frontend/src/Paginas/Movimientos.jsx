@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { api } from "../api"; // ← Nuestra API configurada
+import { api } from "../api";
 import Button from "../Componentes/ui/Button";
 import Card from "../Componentes/ui/Card";
 import Badge from "../Componentes/ui/Badge";
@@ -7,8 +7,8 @@ import {
   PieChart, Pie, Cell, Tooltip, Legend, ResponsiveContainer,
 } from "recharts";
 
-const CATEGORIAS = ["Insumos", "Logística", "Servicios", "Impuestos", "Otros"];
-const COLORS = ["#60a5fa", "#a78bfa", "#34d399", "#fbbf24", "#fb7185"];
+// Colores para el gráfico de torta
+const COLORS = ["#60a5fa", "#a78bfa", "#34d399", "#fbbf24", "#fb7185", "#f97316", "#06b6d4", "#ec4899"];
 
 const todayLocal = () => {
   const d = new Date();
@@ -21,26 +21,36 @@ const todayLocal = () => {
 const fmt = (n) => n.toLocaleString("es-AR", { style: "currency", currency: "ARS" });
 
 export default function Movimientos({ user }) {
-  //Los items vienen del backend
   const [items, setItems] = useState([]);
   const [categorias, setCategorias] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
+  
   // Filtros por fecha
   const [fDesde, setFDesde] = useState("");
   const [fHasta, setFHasta] = useState("");
+  
   // Formulario
   const [openForm, setOpenForm] = useState(false);
   const [form, setForm] = useState({
     tipo: "ingreso",
     concepto: "",
-    categoria: "Insumos",
+    categoria_id: "",
     monto: "",
   });
   const [submitting, setSubmitting] = useState(false);
+  
   // Alerta fondos insuficientes
   const [showAlert, setShowAlert] = useState(false);
   const prevDisponible = useRef(0);
+
+  // Filtrar categorías por tipo
+  const categoriasIngreso = useMemo(() => 
+    categorias.filter(c => c.tipo === "ingreso"), [categorias]);
+  
+  const categoriasGasto = useMemo(() => 
+    categorias.filter(c => c.tipo === "gasto" || c.tipo === "egreso"), [categorias]);
+
   // CARGAR DATOS AL INICIO
   useEffect(() => {
     const cargarDatos = async () => {
@@ -48,7 +58,6 @@ export default function Movimientos({ user }) {
         setLoading(true);
         setError(null);
 
-        // Cargar movimientos y categorías en paralelo
         const [movimientosRes, categoriasRes] = await Promise.all([
           api.get("/movimientos"),
           api.get("/categorias")
@@ -57,20 +66,23 @@ export default function Movimientos({ user }) {
         console.log("✅ Movimientos cargados:", movimientosRes.data);
         console.log("✅ Categorías cargadas:", categoriasRes.data);
 
-        // Transformar movimientos para que coincidan con el formato esperado
-        const movimientosTransformados = movimientosRes.data.map(m => ({
-          fecha: m.fecha,
-          concepto: m.descripcion,
-          categoria: m.categoria_id ? 
-            categoriasRes.data.find(c => c.id === m.categoria_id)?.nombre || "Otros" 
-            : "Ingresos",
-          tipo: m.monto > 0 ? "ingreso" : "egreso",
-          monto: Math.abs(m.monto),
-          id: m.id // Guardamos el ID para poder editar/borrar
-        }));
+        setCategorias(categoriasRes.data);
+
+        // Transformar movimientos
+        const movimientosTransformados = movimientosRes.data.map(m => {
+          const categoria = categoriasRes.data.find(c => c.id === m.categoria_id);
+          return {
+            fecha: m.fecha,
+            concepto: m.descripcion,
+            categoria_id: m.categoria_id,
+            categoria_nombre: categoria?.nombre || "Sin categoría",
+            tipo: m.monto > 0 ? "ingreso" : "egreso",
+            monto: Math.abs(m.monto),
+            id: m.id
+          };
+        });
 
         setItems(movimientosTransformados);
-        setCategorias(categoriasRes.data);
       } catch (err) {
         console.error("❌ Error cargando datos:", err);
         setError(err.response?.data?.detail || "Error al cargar los datos");
@@ -83,6 +95,15 @@ export default function Movimientos({ user }) {
       cargarDatos();
     }
   }, [user]);
+
+  // Setear categoría por defecto cuando cambia el tipo
+  useEffect(() => {
+    if (form.tipo === "ingreso" && categoriasIngreso.length > 0) {
+      setForm(f => ({ ...f, categoria_id: categoriasIngreso[0].id }));
+    } else if (form.tipo === "egreso" && categoriasGasto.length > 0) {
+      setForm(f => ({ ...f, categoria_id: categoriasGasto[0].id }));
+    }
+  }, [form.tipo, categoriasIngreso, categoriasGasto]);
 
   const filtrados = useMemo(() => {
     return items.filter((it) => {
@@ -115,12 +136,13 @@ export default function Movimientos({ user }) {
   const pieData = useMemo(() => {
     const porCat = new Map();
     filtrados.filter(i => i.tipo === "egreso").forEach(i => {
-      porCat.set(i.categoria, (porCat.get(i.categoria) || 0) + Number(i.monto));
+      const nombre = i.categoria_nombre || "Sin categoría";
+      porCat.set(nombre, (porCat.get(nombre) || 0) + Number(i.monto));
     });
     return Array.from(porCat, ([name, value]) => ({ name, value }));
   }, [filtrados]);
 
-  // GUARDAR MOVIMIENTO EN LA BASE DE DATOS
+  // GUARDAR MOVIMIENTO
   const addMovimiento = async (e) => {
     e.preventDefault();
     const montoNum = Number(form.monto);
@@ -129,18 +151,10 @@ export default function Movimientos({ user }) {
     setSubmitting(true);
 
     try {
-      // Buscar el ID de la categoría
-      let categoriaId = null;
-      if (form.tipo === "egreso") {
-        const cat = categorias.find(c => c.nombre === form.categoria && c.tipo === "egreso");
-        categoriaId = cat?.id || null;
-      }
-
-      // Enviar al backend
       const payload = {
         descripcion: form.concepto,
-        monto: form.tipo === "ingreso" ? montoNum : -montoNum, // Negativos para egresos
-        categoria_id: categoriaId
+        monto: form.tipo === "ingreso" ? montoNum : -montoNum,
+        categoria_id: form.categoria_id || null
       };
 
       console.log("📤 Enviando movimiento:", payload);
@@ -148,13 +162,13 @@ export default function Movimientos({ user }) {
       const response = await api.post("/movimientos", payload);
       console.log("✅ Movimiento guardado:", response.data);
 
-      // Agregar a la lista local
+      const categoria = categorias.find(c => c.id === response.data.categoria_id);
+      
       const nuevoMovimiento = {
         fecha: response.data.fecha,
         concepto: response.data.descripcion,
-        categoria: categoriaId ? 
-          categorias.find(c => c.id === categoriaId)?.nombre || "Otros"
-          : "Ingresos",
+        categoria_id: response.data.categoria_id,
+        categoria_nombre: categoria?.nombre || "Sin categoría",
         tipo: form.tipo,
         monto: montoNum,
         id: response.data.id
@@ -163,7 +177,12 @@ export default function Movimientos({ user }) {
       setItems(prev => [nuevoMovimiento, ...prev]);
 
       // Limpiar formulario
-      setForm({ tipo: "ingreso", concepto: "", categoria: "Insumos", monto: "" });
+      setForm({ 
+        tipo: "ingreso", 
+        concepto: "", 
+        categoria_id: categoriasIngreso[0]?.id || "", 
+        monto: "" 
+      });
       setOpenForm(false);
     } catch (err) {
       console.error("❌ Error guardando movimiento:", err);
@@ -173,7 +192,19 @@ export default function Movimientos({ user }) {
     }
   };
 
-  // ESTADO DE CARGA
+  // Función para obtener color del badge según categoría
+  const getBadgeColor = (categoriaNombre) => {
+    const colores = {
+      'Salario': 'green', 'Venta': 'green', 'Ingresos': 'green',
+      'Pago de alquiler': 'red', 'Servicios Públicos': 'blue',
+      'Supermercado': 'violet', 'Transporte': 'blue',
+      'Gasolina': 'red', 'Compras': 'violet',
+      'Bares y Restaurantes': 'red', 'Entretenimiento': 'violet',
+      'Salud': 'green', 'Educación': 'blue',
+    };
+    return colores[categoriaNombre] || 'gray';
+  };
+
   if (loading) {
     return (
       <main className="bg-gray-50">
@@ -185,15 +216,12 @@ export default function Movimientos({ user }) {
     );
   }
 
-  // ESTADO DE ERROR
   if (error) {
     return (
       <main className="bg-gray-50">
         <div className="max-w-6xl mx-auto px-4 py-16 text-center">
           <p className="text-red-600 mb-4">❌ {error}</p>
-          <Button onClick={() => window.location.reload()}>
-            Reintentar
-          </Button>
+          <Button onClick={() => window.location.reload()}>Reintentar</Button>
         </div>
       </main>
     );
@@ -213,22 +241,10 @@ export default function Movimientos({ user }) {
           </div>
 
           <div className="flex flex-wrap items-center gap-2">
-            <input
-              type="date"
-              value={fDesde}
-              onChange={(e) => setFDesde(e.target.value)}
-              className="border rounded-xl px-3 py-2 text-sm"
-              placeholder="Desde"
-              max={todayLocal()}
-            />
-            <input
-              type="date"
-              value={fHasta}
-              onChange={(e) => setFHasta(e.target.value)}
-              className="border rounded-xl px-3 py-2 text-sm"
-              placeholder="Hasta"
-              max={todayLocal()}
-            />
+            <input type="date" value={fDesde} onChange={(e) => setFDesde(e.target.value)}
+              className="border rounded-xl px-3 py-2 text-sm" max={todayLocal()} />
+            <input type="date" value={fHasta} onChange={(e) => setFHasta(e.target.value)}
+              className="border rounded-xl px-3 py-2 text-sm" max={todayLocal()} />
             <Button variant="outline" onClick={() => { setFDesde(""); setFHasta(""); }}>
               Limpiar
             </Button>
@@ -242,9 +258,7 @@ export default function Movimientos({ user }) {
         {showAlert && (
           <div className="rounded-xl border border-rose-200 bg-rose-50 text-rose-800 px-4 py-3 flex items-center justify-between">
             <span className="font-semibold">⚠️ FONDOS INSUFICIENTES</span>
-            <button onClick={() => setShowAlert(false)} className="text-rose-700 hover:underline text-sm">
-              Ocultar
-            </button>
+            <button onClick={() => setShowAlert(false)} className="text-rose-700 hover:underline text-sm">Ocultar</button>
           </div>
         )}
 
@@ -261,66 +275,43 @@ export default function Movimientos({ user }) {
 
               <div className="md:col-span-1">
                 <label className="text-sm font-medium">Tipo</label>
-                <select
-                  value={form.tipo}
-                  onChange={(e) => setForm({ ...form, tipo: e.target.value })}
-                  className="w-full border rounded-xl px-3 py-2 text-sm bg-white"
-                  disabled={submitting}
-                >
+                <select value={form.tipo} onChange={(e) => setForm({ ...form, tipo: e.target.value })}
+                  className="w-full border rounded-xl px-3 py-2 text-sm bg-white" disabled={submitting}>
                   <option value="ingreso">Ingreso</option>
                   <option value="egreso">Egreso</option>
                 </select>
               </div>
 
-              {form.tipo === "egreso" && (
-                <div className="md:col-span-1">
-                  <label className="text-sm font-medium">Categoría</label>
-                  <select
-                    value={form.categoria}
-                    onChange={(e) => setForm({ ...form, categoria: e.target.value })}
-                    className="w-full border rounded-xl px-3 py-2 text-sm bg-white"
-                    disabled={submitting}
-                  >
-                    {CATEGORIAS.map((c) => <option key={c} value={c}>{c}</option>)}
-                  </select>
-                </div>
-              )}
+              <div className="md:col-span-1">
+                <label className="text-sm font-medium">Categoría</label>
+                <select value={form.categoria_id} 
+                  onChange={(e) => setForm({ ...form, categoria_id: Number(e.target.value) })}
+                  className="w-full border rounded-xl px-3 py-2 text-sm bg-white" disabled={submitting}>
+                  {(form.tipo === "ingreso" ? categoriasIngreso : categoriasGasto).map((c) => (
+                    <option key={c.id} value={c.id}>{c.nombre}</option>
+                  ))}
+                </select>
+              </div>
 
               <div className="md:col-span-2">
                 <label className="text-sm font-medium">Concepto</label>
-                <input
-                  type="text"
-                  value={form.concepto}
+                <input type="text" value={form.concepto}
                   onChange={(e) => setForm({ ...form, concepto: e.target.value })}
                   className="w-full border rounded-xl px-3 py-2 text-sm"
-                  placeholder={form.tipo === "ingreso" ? "Ej: Transferencia" : "Ej: Compra denim"}
-                  required
-                  disabled={submitting}
-                />
+                  placeholder={form.tipo === "ingreso" ? "Ej: Cobro de sueldo" : "Ej: Compra supermercado"}
+                  required disabled={submitting} />
               </div>
 
               <div className="md:col-span-1">
                 <label className="text-sm font-medium">Monto (ARS)</label>
-                <input
-                  type="number"
-                  step="0.01"
-                  min="0"
-                  value={form.monto}
+                <input type="number" step="0.01" min="0" value={form.monto}
                   onChange={(e) => setForm({ ...form, monto: e.target.value })}
                   className="w-full border rounded-xl px-3 py-2 text-sm"
-                  placeholder="0,00"
-                  required
-                  disabled={submitting}
-                />
+                  placeholder="0,00" required disabled={submitting} />
               </div>
 
               <div className="md:col-span-6 flex justify-end gap-2">
-                <Button 
-                  variant="outline" 
-                  type="button" 
-                  onClick={() => setOpenForm(false)}
-                  disabled={submitting}
-                >
+                <Button variant="outline" type="button" onClick={() => setOpenForm(false)} disabled={submitting}>
                   Cancelar
                 </Button>
                 <Button type="submit" disabled={submitting}>
@@ -378,18 +369,9 @@ export default function Movimientos({ user }) {
                         <td className="px-4 py-2">{f.fecha}</td>
                         <td className="px-4 py-2">{f.concepto}</td>
                         <td className="px-4 py-2">
-                          {f.tipo === "ingreso" ? (
-                            <Badge color="green">Ingresos</Badge>
-                          ) : (
-                            <Badge color={
-                              f.categoria === "Insumos" ? "blue" :
-                              f.categoria === "Logística" ? "violet" :
-                              f.categoria === "Servicios" ? "green" :
-                              f.categoria === "Impuestos" ? "red" : "gray"
-                            }>
-                              {f.categoria}
-                            </Badge>
-                          )}
+                          <Badge color={f.tipo === "ingreso" ? "green" : getBadgeColor(f.categoria_nombre)}>
+                            {f.categoria_nombre}
+                          </Badge>
                         </td>
                         <td className={`px-4 py-2 text-right font-medium ${f.tipo === "egreso" ? "text-rose-600" : "text-emerald-600"}`}>
                           {f.tipo === "egreso" ? "- " + fmt(f.monto) : "+ " + fmt(f.monto)}
